@@ -1,0 +1,32 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "playstore_analysis"
+version = "0.0.1"
+description = "Analysis of Google Play Store app data to identify pricing strategy effectiveness and market saturation patterns for mobile app developers."
+authors = [
+  { name = "Nora" },
+]
+
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    
+]
+requires-python = "~=3.12.0"
+
+
+[tool.ruff]
+line-length = 99
+src = ["playstore_analysis"]
+include = ["pyproject.toml", "playstore_analysis/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["I"]  # Add import sorting
+
+[tool.ruff.lint.isort]
+known-first-party = ["playstore_analysis"]
+force-sort-within-sections = true
+
