@@ -1,0 +1,27 @@
+{
+    "dataset_info": {
+        "total_rows": 10841,
+        "total_columns": 13,
+        "datetime": "2025-05-13 14:22:23"
+    },
+    "missing_data": {
+        "Rating": "13.60%",
+        "Type": "0.01%",
+        "Content Rating": "0.01%",
+        "Current Ver": "0.07%",
+        "Android Ver": "0.03%"
+    },
+    "data_type_issues": {
+        "Rating": "1474 non-numeric values",
+        "Reviews": "1 non-numeric values",
+        "Size": "10841 non-numeric values",
+        "Installs": "10840 non-numeric values",
+        "Price": "801 non-numeric values"
+    },
+    "inconsistent_formats": {
+        "Size": "Mixed units (k, M) or 'Varies with device'",
+        "Installs": "Contains '+' or ',' characters",
+        "Price": "Contains '$' characters"
+    },
+    "outliers": {}
+}
