@@ -1,27 +1,68 @@
 {
-    "dataset_info": {
-        "total_rows": 10841,
-        "total_columns": 13,
-        "datetime": "2025-05-13 14:22:23"
+    "dataset_size": {
+        "rows": 9745,
+        "columns": 32
     },
-    "missing_data": {
-        "Rating": "13.60%",
-        "Type": "0.01%",
-        "Content Rating": "0.01%",
-        "Current Ver": "0.07%",
-        "Android Ver": "0.03%"
+    "missing_values": {
+        "Size": 1251,
+        "Last Updated": 1,
+        "App Age (days)": 1,
+        "App Age Category": 6,
+        "Relative Popularity": 1
     },
-    "data_type_issues": {
-        "Rating": "1474 non-numeric values",
-        "Reviews": "1 non-numeric values",
-        "Size": "10841 non-numeric values",
-        "Installs": "10840 non-numeric values",
-        "Price": "801 non-numeric values"
+    "column_types": {
+        "App": "object",
+        "Category": "object",
+        "Rating": "float64",
+        "Reviews": "float64",
+        "Size": "float64",
+        "Installs": "int64",
+        "Type": "object",
+        "Price": "float64",
+        "Content Rating": "object",
+        "Genres": "object",
+        "Last Updated": "datetime64[ns]",
+        "Current Ver": "object",
+        "Android Ver": "object",
+        "Primary Genre": "object",
+        "is_price_outlier": "bool",
+        "is_installs_outlier": "bool",
+        "is_reviews_outlier": "bool",
+        "is_novelty_app": "bool",
+        "Price Category": "category",
+        "App Age (days)": "float64",
+        "App Age Category": "category",
+        "Category App Count": "int64",
+        "Category Avg Installs": "float64",
+        "Market Saturation Index": "float64",
+        "Relative Popularity": "float64",
+        "Category Avg Rating": "float64",
+        "Relative Rating": "float64",
+        "is_free": "bool",
+        "has_high_rating": "bool",
+        "is_recently_updated": "bool",
+        "Competitiveness Tier": "object",
+        "Price Efficiency": "float64"
     },
-    "inconsistent_formats": {
-        "Size": "Mixed units (k, M) or 'Varies with device'",
-        "Installs": "Contains '+' or ',' characters",
-        "Price": "Contains '$' characters"
-    },
-    "outliers": {}
+    "derived_features": [
+        "Primary Genre",
+        "is_price_outlier",
+        "is_installs_outlier",
+        "is_reviews_outlier",
+        "is_novelty_app",
+        "Price Category",
+        "App Age (days)",
+        "App Age Category",
+        "Category App Count",
+        "Category Avg Installs",
+        "Market Saturation Index",
+        "Relative Popularity",
+        "Category Avg Rating",
+        "Relative Rating",
+        "is_free",
+        "has_high_rating",
+        "is_recently_updated",
+        "Competitiveness Tier",
+        "Price Efficiency"
+    ]
 }
