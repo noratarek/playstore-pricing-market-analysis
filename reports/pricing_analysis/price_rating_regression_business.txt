@@ -1,0 +1,27 @@
+Correlation between Price and Rating (Business Apps): -0.0016
+
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:                 Rating   R-squared:                       0.000
+Model:                            OLS   Adj. R-squared:                 -0.001
+Method:                 Least Squares   F-statistic:                  0.001820
+Date:                Thu, 12 Jun 2025   Prob (F-statistic):              0.966
+Time:                        13:14:10   Log-Likelihood:                -541.17
+No. Observations:                 742   AIC:                             1086.
+Df Residuals:                     740   BIC:                             1096.
+Df Model:                           1                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const          4.2816      0.019    224.182      0.000       4.244       4.319
+Price      -3.321e-05      0.001     -0.043      0.966      -0.002       0.001
+==============================================================================
+Omnibus:                      386.283   Durbin-Watson:                   1.773
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):             2737.473
+Skew:                          -2.270   Prob(JB):                         0.00
+Kurtosis:                      11.242   Cond. No.                         25.4
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.

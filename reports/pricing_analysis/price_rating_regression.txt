@@ -5,8 +5,8 @@ Correlation between Price and Rating: -0.1063
 Dep. Variable:                 Rating   R-squared:                       0.011
 Model:                            OLS   Adj. R-squared:                  0.010
 Method:                 Least Squares   F-statistic:                     8.634
-Date:                Mon, 19 May 2025   Prob (F-statistic):            0.00340
-Time:                        14:28:51   Log-Likelihood:                -549.62
+Date:                Thu, 12 Jun 2025   Prob (F-statistic):            0.00340
+Time:                        12:30:12   Log-Likelihood:                -549.62
 No. Observations:                 758   AIC:                             1103.
 Df Residuals:                     756   BIC:                             1112.
 Df Model:                           1                                         

@@ -1,0 +1,7 @@
+,Price,Price,Price,Price,Success_Score,Success_Score,Rating,Rating,Installs,Installs,App
+,mean,median,min,max,mean,median,mean,median,mean,median,count
+Cluster,,,,,,,,,,,
+0,4.12,2.99,0.99,29.99,0.48,0.42,4.49,4.5,130598.45,10000.0,439
+1,4.76,2.49,0.99,46.99,-0.7,-0.58,3.96,4.2,1054.41,100.0,295
+2,397.49,397.49,394.99,399.99,-0.71,-0.71,4.3,4.3,50.0,50.0,2
+3,118.32,99.99,74.99,200.0,-0.56,-0.77,4.37,4.3,335.17,5.5,6
