@@ -33,50 +33,22 @@ RESULTS_DIR = PROJECT_DIR / "reports" / "pricing_analysis"
 os.makedirs(FIGURES_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
+from playstore_analysis.data_loader import PlayStoreDataLoader
 
-def load_processed_data():
-    """Load the processed dataset from Phase 1."""
-    logger.info("Loading processed dataset")
 
-    data_path = PROCESSED_DATA_DIR / "processed_playstore_data.csv"
-    if not os.path.exists(data_path):
-        logger.error(f"Processed dataset not found at {data_path}")
-        raise FileNotFoundError(f"Dataset not found at {data_path}")
+def load_data_with_loader():
+    """Load data using the centralized data loader."""
+    loader = PlayStoreDataLoader(PROCESSED_DATA_DIR)
 
-    df = pd.read_csv(data_path)
+    # Get all required datasets
+    df = loader.get_main_dataset()
+    business_df, business_paid_df = loader.get_business_datasets()
+    paid_df = loader.get_paid_dataset()
 
-    # Filter out novelty apps for meaningful business analysis
-    logger.info("Filtering out novelty apps for business-focused analysis")
-
-    # Create business-focused datasets
-    if "is_novelty_app" in df.columns:
-        business_df = df[~df["is_novelty_app"]].copy()
-        business_paid_df = business_df[business_df["Price"] > 0].copy()
-
-        novelty_count = df["is_novelty_app"].sum()
-        logger.info(f"Excluded {novelty_count} novelty apps from pricing analysis")
-        logger.info(
-            f"Business dataset: {len(business_df)} apps, Business paid dataset: {len(business_paid_df)} apps"
-        )
-    else:
-        # If novelty flag doesn't exist, create it
-        import re
-
-        rich_pattern = re.compile(r"rich|wealth|millionaire|billionaire|money", re.IGNORECASE)
-        df["is_novelty_app"] = df.apply(
-            lambda row: bool(rich_pattern.search(str(row["App"]))) and row["Price"] > 20, axis=1
-        )
-        business_df = df[~df["is_novelty_app"]].copy()
-        business_paid_df = business_df[business_df["Price"] > 0].copy()
-
-        novelty_count = df["is_novelty_app"].sum()
-        logger.info(f"Identified and excluded {novelty_count} novelty apps from pricing analysis")
-
-    # Also create the regular paid dataset for comparison
-    paid_df = df[df["Price"] > 0].copy()
-
+    # Log the dataset sizes
     logger.info(
-        f"Loaded datasets - Full: {len(df)}, Business: {len(business_df)}, Business Paid: {len(business_paid_df)}, All Paid: {len(paid_df)}"
+        f"Loaded datasets - Full: {len(df)}, Business: {len(business_df)}, "
+        f"Business Paid: {len(business_paid_df)}, All Paid: {len(paid_df)}"
     )
 
     return df, business_df, business_paid_df, paid_df
@@ -680,7 +652,7 @@ def main():
     logger.info("Starting pricing strategy analysis (excluding novelty apps)")
 
     # Load the data
-    df, business_df, business_paid_df, paid_df = load_processed_data()
+    df, business_df, business_paid_df, paid_df = load_data_with_loader()
 
     # Analyze price distribution
     price_stats_business, price_stats_all = analyze_price_distribution(
