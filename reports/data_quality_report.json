@@ -1,20 +1,17 @@
 {
     "dataset_size": {
-        "rows": 9745,
+        "rows": 9744,
         "columns": 32
     },
     "missing_values": {
-        "Size": 1251,
-        "Last Updated": 1,
-        "App Age (days)": 1,
-        "App Age Category": 6,
-        "Relative Popularity": 1
+        "Size": 1250,
+        "App Age Category": 5
     },
     "column_types": {
         "App": "object",
         "Category": "object",
         "Rating": "float64",
-        "Reviews": "float64",
+        "Reviews": "int64",
         "Size": "float64",
         "Installs": "int64",
         "Type": "object",
@@ -30,7 +27,7 @@
         "is_reviews_outlier": "bool",
         "is_novelty_app": "bool",
         "Price Category": "category",
-        "App Age (days)": "float64",
+        "App Age (days)": "int64",
         "App Age Category": "category",
         "Category App Count": "int64",
         "Category Avg Installs": "float64",

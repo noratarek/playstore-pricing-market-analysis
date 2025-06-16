@@ -59,6 +59,9 @@ def clean_data(df):
     # Make a copy to avoid modifying the original
     df_clean = df.copy()
 
+    # remove problematic rows
+    df_clean = remove_problematic_rows(df_clean)
+
     # 1. Handle duplicate records
     logger.info("Checking for duplicate records")
     duplicates = df_clean.duplicated(subset=["App", "Category"])
@@ -260,6 +263,14 @@ def create_derived_features(df_clean):
     # Calculate average installs by category
     category_avg_installs = df_features.groupby("Category")["Installs"].mean()
     df_features["Category Avg Installs"] = df_features["Category"].map(category_avg_installs)
+
+    # NEW: Use log-based saturation index to handle scale differences
+    # This prevents infinity when average installs is very low
+    df_features["Market Saturation Index"] = df_features.apply(
+        lambda row: np.log1p(row["Category App Count"])
+        / np.log1p(row["Category Avg Installs"] + 1),
+        axis=1,
+    )
 
     # Calculate market saturation index
     # Higher values indicate more apps competing for same install base (more saturated)
@@ -486,6 +497,27 @@ def save_data_quality_report(df_features):
 
     logger.info("Data quality report saved")
     return report
+
+
+def remove_problematic_rows(df):
+    """Remove known problematic rows from the dataset."""
+    logger.info("Removing known problematic rows")
+
+    df_clean = df.copy()
+
+    # Remove rows with numeric categories
+    numeric_category_mask = df_clean["Category"].str.match(r"^\d+\.?\d*$", na=False)
+    if numeric_category_mask.any():
+        logger.info(f"Removing {numeric_category_mask.sum()} rows with numeric categories")
+        df_clean = df_clean[~numeric_category_mask]
+
+    # Specifically remove the problematic app if it still exists
+    problematic_app = "Life Made WI-Fi Touchscreen Photo Frame"
+    if problematic_app in df_clean["App"].values:
+        logger.info(f"Removing '{problematic_app}'")
+        df_clean = df_clean[df_clean["App"] != problematic_app]
+
+    return df_clean
 
 
 def main():

@@ -1,4 +1,5 @@
 # playstore_analysis/data_loader.py
+import numpy as np
 import pandas as pd
 from pathlib import Path
 import logging
@@ -143,3 +144,18 @@ class PlayStoreDataLoader:
             self._cache["market_summary"] = market_summary
 
         return self._cache["market_summary"].copy()
+
+    # In your data loader or analysis functions
+
+    def fix_saturation_index(df):
+        # Replace infinite values
+        df["Avg_Saturation_Index"] = df["Avg_Saturation_Index"].replace([np.inf, -np.inf], np.nan)
+
+        # Calculate a reasonable maximum based on non-infinite values
+        finite_values = df["Avg_Saturation_Index"][np.isfinite(df["Avg_Saturation_Index"])]
+        if len(finite_values) > 0:
+            max_finite = finite_values.quantile(0.95)
+            df["Avg_Saturation_Index"] = df["Avg_Saturation_Index"].fillna(max_finite)
+            df.loc[df["Avg_Saturation_Index"] > max_finite, "Avg_Saturation_Index"] = max_finite
+
+        return df

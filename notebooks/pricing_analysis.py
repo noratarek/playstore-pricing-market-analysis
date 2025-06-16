@@ -5,6 +5,7 @@ Analyzing how different monetization models impact app success metrics
 """
 
 import os
+import sys  # Add this
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 import logging
 
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -24,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Project paths
-PROJECT_DIR = Path(__file__).resolve().parents[1]  # Adjust if needed
+PROJECT_DIR = Path(__file__).resolve().parents[1]  # This should point to the root
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
 FIGURES_DIR = PROJECT_DIR / "reports" / "figures" / "pricing"
 RESULTS_DIR = PROJECT_DIR / "reports" / "pricing_analysis"

@@ -1,0 +1,765 @@
+"""
+Market Opportunity Analysis - Google Play Store
+Identifying market gaps and saturation patterns across app categories
+"""
+
+import os
+import sys
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+import logging
+
+# Add parent directory to path to import from playstore_analysis
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from playstore_analysis.data_loader import PlayStoreDataLoader
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Project paths
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
+FIGURES_DIR = PROJECT_DIR / "reports" / "figures" / "market"
+RESULTS_DIR = PROJECT_DIR / "reports" / "market_analysis"
+
+# Ensure directories exist
+os.makedirs(FIGURES_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+
+def load_market_data():
+    """Load data for market opportunity analysis using centralized loader."""
+    loader = PlayStoreDataLoader(PROCESSED_DATA_DIR)
+
+    # Get required datasets
+    df = loader.get_main_dataset()
+    market_summary = loader.get_market_summary()
+    competition_splits = loader.get_competition_splits()
+
+    logger.info(
+        f"Loaded market data - Total apps: {len(df)}, Categories analyzed: {len(market_summary)}"
+    )
+
+    return df, market_summary, competition_splits
+
+
+def clean_numeric_data(df, columns):
+    """Clean numeric data by handling inf and NaN values."""
+    df_clean = df.copy()
+
+    for col in columns:
+        if col in df_clean.columns:
+            # Replace inf with NaN
+            df_clean[col] = df_clean[col].replace([np.inf, -np.inf], np.nan)
+
+            # Fill NaN with median
+            median_val = df_clean[col].median()
+            if pd.isna(median_val):  # If all values are NaN
+                df_clean[col] = 0
+            else:
+                df_clean[col] = df_clean[col].fillna(median_val)
+
+            # Cap at 99th percentile
+            cap_value = df_clean[col].quantile(0.99)
+            if not pd.isna(cap_value):
+                df_clean.loc[df_clean[col] > cap_value, col] = cap_value
+
+    return df_clean
+
+
+def analyze_market_saturation(df, market_summary):
+    """Analyze market saturation patterns across categories."""
+    logger.info("Analyzing market saturation patterns")
+
+    # Sort by saturation index to identify most/least saturated markets
+    saturation_analysis = market_summary.sort_values("Avg_Saturation_Index", ascending=False)
+
+    # Save saturation analysis
+    saturation_analysis.to_csv(RESULTS_DIR / "market_saturation_analysis.csv")
+
+    # 1. Visualize market saturation
+    plt.figure(figsize=(14, 8))
+    top_categories = market_summary.nlargest(15, "App_Count")
+
+    scatter = plt.scatter(
+        top_categories["App_Count"],
+        top_categories["Avg_Installs"],
+        s=top_categories["Total_Installs"] / 1e6,  # Size by total installs (in millions)
+        alpha=0.6,
+        c=top_categories["Avg_Saturation_Index"],
+        cmap="coolwarm",
+    )
+
+    # Add labels
+    for idx, row in top_categories.iterrows():
+        plt.annotate(idx, (row["App_Count"], row["Avg_Installs"]), fontsize=8, alpha=0.7)
+
+    plt.colorbar(scatter, label="Saturation Index")
+    plt.xlabel("Number of Apps")
+    plt.ylabel("Average Installs per App")
+    plt.title("Market Saturation Analysis by Category")
+    plt.yscale("log")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "market_saturation_scatter.png")
+    plt.close()
+
+    # 2. Create saturation ranking visualization
+    plt.figure(figsize=(12, 10))
+
+    # Get top 10 most and least saturated categories
+    most_saturated = saturation_analysis.head(10)
+    least_saturated = saturation_analysis.tail(10)
+
+    # Create subplot for most saturated
+    plt.subplot(2, 1, 1)
+    plt.barh(most_saturated.index, most_saturated["Avg_Saturation_Index"], color="red", alpha=0.7)
+    plt.title("Top 10 Most Saturated Categories", fontsize=14)
+    plt.xlabel("Saturation Index")
+
+    # Create subplot for least saturated
+    plt.subplot(2, 1, 2)
+    plt.barh(
+        least_saturated.index, least_saturated["Avg_Saturation_Index"], color="green", alpha=0.7
+    )
+    plt.title("Top 10 Least Saturated Categories", fontsize=14)
+    plt.xlabel("Saturation Index")
+
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "saturation_rankings.png")
+    plt.close()
+
+    return saturation_analysis
+
+
+def identify_opportunity_gaps(df, market_summary, competition_splits):
+    """Identify categories with high potential but low competition."""
+    logger.info("Identifying market opportunity gaps")
+
+    # Create opportunity score combining multiple factors
+    opportunity_df = market_summary.copy()
+
+    # Calculate opportunity metrics
+    # 1. Growth potential: High installs with low app count
+    # Add small epsilon to avoid division by zero
+    opportunity_df["Growth_Potential"] = opportunity_df["Avg_Installs"] / (
+        opportunity_df["App_Count"] + 1
+    )
+
+    # 2. Monetization opportunity: Categories with good paid app percentage
+    opportunity_df["Monetization_Score"] = (
+        opportunity_df["Percent_Paid"] * opportunity_df["Avg_Rating"]
+    )
+
+    # 3. Market accessibility: Inverse of saturation
+    # Add 1 to avoid division by zero
+    opportunity_df["Accessibility"] = 1 / (opportunity_df["Avg_Saturation_Index"] + 1)
+
+    # Handle any infinity or extreme values
+    for col in ["Growth_Potential", "Monetization_Score", "Accessibility"]:
+        # Replace inf with NaN
+        opportunity_df[col] = opportunity_df[col].replace([np.inf, -np.inf], np.nan)
+        # Fill NaN with median
+        median_val = opportunity_df[col].median()
+        opportunity_df[col] = opportunity_df[col].fillna(median_val)
+        # Cap at 99th percentile to handle extreme outliers
+        cap_value = opportunity_df[col].quantile(0.99)
+        opportunity_df.loc[opportunity_df[col] > cap_value, col] = cap_value
+
+    # 4. Combined opportunity score (normalized)
+    from sklearn.preprocessing import MinMaxScaler
+
+    scaler = MinMaxScaler()
+
+    metrics_to_normalize = [
+        "Growth_Potential",
+        "Monetization_Score",
+        "Accessibility",
+        "Avg_Installs",
+    ]
+
+    for metric in metrics_to_normalize:
+        # Ensure no NaN values before normalization
+        if opportunity_df[metric].isna().any():
+            opportunity_df[metric] = opportunity_df[metric].fillna(opportunity_df[metric].median())
+
+        opportunity_df[f"{metric}_Normalized"] = scaler.fit_transform(opportunity_df[[metric]])
+
+    # Calculate composite opportunity score
+    opportunity_df["Opportunity_Score"] = (
+        0.3 * opportunity_df["Growth_Potential_Normalized"]
+        + 0.2 * opportunity_df["Monetization_Score_Normalized"]
+        + 0.3 * opportunity_df["Accessibility_Normalized"]
+        + 0.2 * opportunity_df["Avg_Installs_Normalized"]
+    )
+
+    # Sort by opportunity score
+    opportunity_df = opportunity_df.sort_values("Opportunity_Score", ascending=False)
+
+    # Save opportunity analysis
+    opportunity_df.to_csv(RESULTS_DIR / "opportunity_gap_analysis.csv")
+
+    # Rest of the function remains the same...
+    # Visualize opportunity gaps
+    plt.figure(figsize=(14, 8))
+    top_opportunities = opportunity_df.head(15)
+
+    # Create bubble chart
+    plt.scatter(
+        top_opportunities["App_Count"],
+        top_opportunities["Avg_Installs"],
+        s=top_opportunities["Opportunity_Score"] * 1000,
+        alpha=0.6,
+        c=top_opportunities["Opportunity_Score"],
+        cmap="viridis",
+    )
+
+    # Add labels
+    for idx, row in top_opportunities.iterrows():
+        plt.annotate(idx, (row["App_Count"], row["Avg_Installs"]), fontsize=9, fontweight="bold")
+
+    plt.colorbar(label="Opportunity Score")
+    plt.xlabel("Number of Apps (Competition Level)")
+    plt.ylabel("Average Installs (Market Demand)")
+    plt.title("Market Opportunity Analysis - Top 15 Categories")
+    plt.yscale("log")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "opportunity_gaps_bubble.png")
+    plt.close()
+
+    # Create opportunity score ranking
+    plt.figure(figsize=(12, 8))
+    top_opportunities["Opportunity_Score"].plot(kind="bar", color="darkgreen")
+    plt.title("Market Opportunity Score by Category", fontsize=15)
+    plt.xlabel("Category")
+    plt.ylabel("Opportunity Score")
+    plt.xticks(rotation=45, ha="right")
+    plt.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "opportunity_score_ranking.png")
+    plt.close()
+
+    return opportunity_df
+
+
+def analyze_competition_dynamics(df, competition_splits):
+    """Analyze competition dynamics across different market segments."""
+    logger.info("Analyzing competition dynamics")
+
+    # Calculate competition metrics
+    competition_metrics = {}
+
+    for tier_name, tier_df in competition_splits.items():
+        if not tier_df.empty:
+            metrics = {
+                "App_Count": len(tier_df),
+                "Avg_Rating": tier_df["Rating"].mean(),
+                "Avg_Installs": tier_df["Installs"].mean(),
+                "Median_Installs": tier_df["Installs"].median(),
+                "Percent_Paid": (tier_df["Price"] > 0).mean() * 100,
+                "Avg_Price": tier_df[tier_df["Price"] > 0]["Price"].mean()
+                if any(tier_df["Price"] > 0)
+                else 0,
+            }
+            competition_metrics[tier_name] = metrics
+
+    # Convert to DataFrame
+    competition_df = pd.DataFrame(competition_metrics).T
+    competition_df.to_csv(RESULTS_DIR / "competition_dynamics.csv")
+
+    # Visualize competition tiers
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+
+    # 1. App distribution across tiers
+    axes[0, 0].pie(competition_df["App_Count"], labels=competition_df.index, autopct="%1.1f%%")
+    axes[0, 0].set_title("App Distribution Across Competition Tiers")
+
+    # 2. Average installs by tier
+    axes[0, 1].bar(competition_df.index, competition_df["Avg_Installs"], color="skyblue")
+    axes[0, 1].set_title("Average Installs by Competition Tier")
+    axes[0, 1].set_ylabel("Average Installs")
+    axes[0, 1].tick_params(axis="x", rotation=45)
+
+    # 3. Rating comparison
+    axes[1, 0].bar(competition_df.index, competition_df["Avg_Rating"], color="lightcoral")
+    axes[1, 0].set_title("Average Rating by Competition Tier")
+    axes[1, 0].set_ylabel("Average Rating")
+    axes[1, 0].set_ylim(0, 5)
+    axes[1, 0].tick_params(axis="x", rotation=45)
+
+    # 4. Monetization by tier
+    axes[1, 1].bar(competition_df.index, competition_df["Percent_Paid"], color="lightgreen")
+    axes[1, 1].set_title("Percentage of Paid Apps by Competition Tier")
+    axes[1, 1].set_ylabel("% Paid Apps")
+    axes[1, 1].tick_params(axis="x", rotation=45)
+
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "competition_dynamics.png")
+    plt.close()
+
+    return competition_df
+
+
+def analyze_category_trends(df):
+    """Analyze trends within specific categories."""
+    logger.info("Analyzing category-specific trends")
+
+    # Focus on top 10 categories
+    top_categories = df["Category"].value_counts().head(10).index
+
+    category_trends = []
+
+    for category in top_categories:
+        cat_df = df[df["Category"] == category]
+
+        trend_data = {
+            "Category": category,
+            "Total_Apps": len(cat_df),
+            "Free_Apps": len(cat_df[cat_df["Price"] == 0]),
+            "Paid_Apps": len(cat_df[cat_df["Price"] > 0]),
+            "Avg_Price_Paid": cat_df[cat_df["Price"] > 0]["Price"].mean()
+            if any(cat_df["Price"] > 0)
+            else 0,
+            "Median_Installs_Free": cat_df[cat_df["Price"] == 0]["Installs"].median(),
+            "Median_Installs_Paid": cat_df[cat_df["Price"] > 0]["Installs"].median()
+            if any(cat_df["Price"] > 0)
+            else 0,
+            "Top_Rated_Percentage": (cat_df["Rating"] >= 4.5).mean() * 100,
+            "Recently_Updated_Percentage": cat_df["is_recently_updated"].mean() * 100
+            if "is_recently_updated" in cat_df.columns
+            else 0,
+        }
+
+        category_trends.append(trend_data)
+
+    trends_df = pd.DataFrame(category_trends)
+    trends_df.to_csv(RESULTS_DIR / "category_trends.csv", index=False)
+
+    # Visualize free vs paid dynamics
+    plt.figure(figsize=(14, 8))
+
+    x = np.arange(len(trends_df))
+    width = 0.35
+
+    plt.bar(x - width / 2, trends_df["Free_Apps"], width, label="Free Apps", color="lightblue")
+    plt.bar(x + width / 2, trends_df["Paid_Apps"], width, label="Paid Apps", color="lightcoral")
+
+    plt.xlabel("Category")
+    plt.ylabel("Number of Apps")
+    plt.title("Free vs Paid App Distribution Across Top Categories")
+    plt.xticks(x, trends_df["Category"], rotation=45, ha="right")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "free_vs_paid_distribution.png")
+    plt.close()
+
+    return trends_df
+
+
+def generate_market_insights_report(
+    saturation_analysis, opportunity_df, competition_df, trends_df
+):
+    """Generate a comprehensive market insights report."""
+    logger.info("Generating market insights report")
+
+    with open(RESULTS_DIR / "market_insights_summary.txt", "w") as f:
+        f.write("# MARKET OPPORTUNITY ANALYSIS SUMMARY\n\n")
+
+        f.write("## 1. Market Saturation Insights\n")
+        f.write(
+            f"- Most saturated categories: {', '.join(saturation_analysis.head(3).index.tolist())}\n"
+        )
+        f.write(
+            f"- Least saturated categories: {', '.join(saturation_analysis.tail(3).index.tolist())}\n"
+        )
+        f.write(
+            f"- Average saturation index: {saturation_analysis['Avg_Saturation_Index'].mean():.2f}\n\n"
+        )
+
+        f.write("## 2. Market Opportunity Gaps\n")
+        f.write("Top 5 categories with highest opportunity scores:\n")
+        for i, (idx, row) in enumerate(opportunity_df.head(5).iterrows(), 1):
+            f.write(f"{i}. {idx}: Score = {row['Opportunity_Score']:.3f}\n")
+        f.write("\n")
+
+        f.write("## 3. Competition Dynamics\n")
+        for tier, metrics in competition_df.iterrows():
+            f.write(
+                f"- {tier}: {metrics['App_Count']:.0f} apps, "
+                f"Avg installs: {metrics['Avg_Installs']:,.0f}\n"
+            )
+        f.write("\n")
+
+        f.write("## 4. Key Market Trends\n")
+        f.write(
+            f"- Categories with highest % of paid apps: "
+            f"{trends_df.nlargest(3, 'Paid_Apps')['Category'].tolist()}\n"
+        )
+        f.write(
+            f"- Categories with highest ratings: "
+            f"{trends_df.nlargest(3, 'Top_Rated_Percentage')['Category'].tolist()}\n"
+        )
+
+        f.write("\n## 5. Strategic Recommendations\n")
+        f.write("Based on the analysis, consider:\n")
+        f.write("- Entering low-saturation categories with high opportunity scores\n")
+        f.write("- Focusing on categories where paid apps show better performance\n")
+        f.write("- Targeting market segments with growth potential\n")
+
+
+def apply_clustering_analysis(df, market_summary):
+    """Apply K-means clustering to identify market segments."""
+    logger.info("Applying clustering analysis to identify market segments")
+
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+
+    # Prepare features for clustering
+    clustering_features = [
+        "App_Count",
+        "Avg_Installs",
+        "Avg_Rating",
+        "Percent_Paid",
+        "Avg_Saturation_Index",
+    ]
+
+    # Create a copy and clean the data
+    market_summary_clean = clean_numeric_data(market_summary, clustering_features)
+    X = market_summary_clean[clustering_features].values
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Determine optimal number of clusters using elbow method
+    inertias = []
+    K_range = range(
+        2, min(11, len(market_summary))
+    )  # Ensure we don't have more clusters than data points
+    for k in K_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(X_scaled)
+        inertias.append(kmeans.inertia_)
+
+    # Plot elbow curve
+    plt.figure(figsize=(10, 6))
+    plt.plot(K_range, inertias, "bo-")
+    plt.xlabel("Number of Clusters")
+    plt.ylabel("Inertia")
+    plt.title("Elbow Method for Optimal K")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "clustering_elbow_method.png")
+    plt.close()
+
+    # Apply K-means with optimal k (let's use 5 for this analysis)
+    optimal_k = min(5, len(market_summary) - 1)  # Ensure k is not larger than data points
+    kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+    market_summary["Cluster"] = kmeans.fit_predict(X_scaled)
+
+    # Analyze clusters
+    cluster_summary = market_summary.groupby("Cluster")[clustering_features].mean()
+    cluster_summary.to_csv(RESULTS_DIR / "market_clusters.csv")
+
+    # Visualize clusters
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+
+    # Scatter plots for different feature combinations
+    feature_pairs = [
+        ("App_Count", "Avg_Installs"),
+        ("Avg_Saturation_Index", "Percent_Paid"),
+        ("Avg_Rating", "Avg_Installs"),
+        ("App_Count", "Avg_Saturation_Index"),
+    ]
+
+    for idx, (x_feat, y_feat) in enumerate(feature_pairs):
+        ax = axes[idx // 2, idx % 2]
+        scatter = ax.scatter(
+            market_summary[x_feat],
+            market_summary[y_feat],
+            c=market_summary["Cluster"],
+            cmap="viridis",
+            alpha=0.7,
+        )
+        ax.set_xlabel(x_feat)
+        ax.set_ylabel(y_feat)
+        ax.set_title(f"{x_feat} vs {y_feat}")
+
+        # Add category labels for a few points
+        for i, row in market_summary.head(10).iterrows():
+            ax.annotate(i[:10], (row[x_feat], row[y_feat]), fontsize=6, alpha=0.7)
+
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "market_clusters_visualization.png")
+    plt.close()
+
+    return market_summary
+
+
+def apply_dimensionality_reduction(market_summary):
+    """Apply PCA and t-SNE for market visualization."""
+    logger.info("Applying dimensionality reduction techniques")
+
+    from sklearn.decomposition import PCA
+    from sklearn.manifold import TSNE
+    from sklearn.preprocessing import StandardScaler
+
+    # Prepare features
+    features = ["App_Count", "Avg_Installs", "Avg_Rating", "Percent_Paid", "Avg_Saturation_Index"]
+
+    # Create a copy and clean the data
+    market_summary_clean = clean_numeric_data(market_summary, features)
+    X = market_summary_clean[features].values
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Apply PCA
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X_scaled)
+
+    # Apply t-SNE
+    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(market_summary) - 1))
+    X_tsne = tsne.fit_transform(X_scaled)
+
+    # Create visualization
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+    # PCA plot
+    scatter1 = ax1.scatter(
+        X_pca[:, 0],
+        X_pca[:, 1],
+        c=market_summary["Avg_Saturation_Index"],
+        cmap="coolwarm",
+        alpha=0.7,
+    )
+    ax1.set_title("PCA: Market Categories")
+    ax1.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.2%} variance)")
+    ax1.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.2%} variance)")
+    plt.colorbar(scatter1, ax=ax1, label="Saturation Index")
+
+    # Add labels for top categories
+    for i, (idx, row) in enumerate(market_summary.head(15).iterrows()):
+        if i < len(X_pca):  # Ensure we don't go out of bounds
+            ax1.annotate(idx, (X_pca[i, 0], X_pca[i, 1]), fontsize=8)
+
+    # t-SNE plot
+    # For coloring, use Opportunity_Score if available, otherwise use Avg_Installs
+    if "Opportunity_Score" in market_summary.columns:
+        color_values = market_summary["Opportunity_Score"]
+    else:
+        color_values = market_summary["Avg_Installs"]
+
+    scatter2 = ax2.scatter(
+        X_tsne[:, 0],
+        X_tsne[:, 1],
+        c=color_values,
+        cmap="viridis",
+        alpha=0.7,
+    )
+    ax2.set_title("t-SNE: Market Categories")
+    ax2.set_xlabel("t-SNE 1")
+    ax2.set_ylabel("t-SNE 2")
+    plt.colorbar(
+        scatter2,
+        ax=ax2,
+        label="Opportunity Score"
+        if "Opportunity_Score" in market_summary.columns
+        else "Avg Installs",
+    )
+
+    # Add labels for top categories
+    for i, (idx, row) in enumerate(market_summary.head(15).iterrows()):
+        if i < len(X_tsne):  # Ensure we don't go out of bounds
+            ax2.annotate(idx, (X_tsne[i, 0], X_tsne[i, 1]), fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "dimensionality_reduction.png")
+    plt.close()
+
+    # Save reduced dimensions for further analysis
+    # Create new arrays that match the length of market_summary
+    pca_1 = np.full(len(market_summary), np.nan)
+    pca_2 = np.full(len(market_summary), np.nan)
+    tsne_1 = np.full(len(market_summary), np.nan)
+    tsne_2 = np.full(len(market_summary), np.nan)
+
+    # Fill in the values for the rows we processed
+    pca_1[: len(X_pca)] = X_pca[:, 0]
+    pca_2[: len(X_pca)] = X_pca[:, 1]
+    tsne_1[: len(X_tsne)] = X_tsne[:, 0]
+    tsne_2[: len(X_tsne)] = X_tsne[:, 1]
+
+    market_summary["PCA_1"] = pca_1
+    market_summary["PCA_2"] = pca_2
+    market_summary["tSNE_1"] = tsne_1
+    market_summary["tSNE_2"] = tsne_2
+
+    return market_summary
+
+
+def analyze_temporal_patterns(df):
+    """Analyze growth and demand patterns over time."""
+    logger.info("Analyzing temporal patterns and growth rates")
+
+    # Since we don't have time series data, we'll analyze based on 'Last Updated'
+    # and 'App Age' to infer patterns
+
+    # 1. New app entry rates by category
+    recent_apps = df[df["App Age (days)"] <= 90]  # Apps updated in last 90 days
+    entry_rates = recent_apps.groupby("Category").size() / df.groupby("Category").size() * 100
+    entry_rates = entry_rates.sort_values(ascending=False)
+
+    # 2. Category lifecycle analysis
+    lifecycle_analysis = (
+        df.groupby("Category")
+        .agg(
+            {
+                "App Age (days)": ["mean", "median", "std"],
+                "Rating": "mean",
+                "Installs": "median",
+                "is_recently_updated": "mean",
+            }
+        )
+        .round(2)
+    )
+
+    lifecycle_analysis.columns = ["_".join(col).strip() for col in lifecycle_analysis.columns]
+    lifecycle_analysis["Entry_Rate"] = entry_rates
+    lifecycle_analysis = lifecycle_analysis.sort_values("Entry_Rate", ascending=False)
+
+    # Save lifecycle analysis
+    lifecycle_analysis.to_csv(RESULTS_DIR / "category_lifecycle_analysis.csv")
+
+    # 3. Visualize entry rates
+    plt.figure(figsize=(14, 8))
+    top_entry_rates = entry_rates.head(15)
+    bars = plt.bar(range(len(top_entry_rates)), top_entry_rates.values, color="teal")
+    plt.xticks(range(len(top_entry_rates)), top_entry_rates.index, rotation=45, ha="right")
+    plt.title("New App Entry Rates by Category (% Updated in Last 90 Days)")
+    plt.ylabel("Entry Rate (%)")
+    plt.grid(axis="y", alpha=0.3)
+
+    # Add value labels
+    for i, bar in enumerate(bars):
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.5,
+            f"{top_entry_rates.values[i]:.1f}%",
+            ha="center",
+            fontsize=9,
+        )
+
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "new_app_entry_rates.png")
+    plt.close()
+
+    # 4. Category maturity analysis
+    plt.figure(figsize=(14, 8))
+
+    # Create maturity categories based on average app age
+    maturity_categories = pd.cut(
+        lifecycle_analysis["App Age (days)_mean"],
+        bins=[0, 180, 365, 730, float("inf")],
+        labels=["Emerging", "Growing", "Mature", "Saturated"],
+    )
+
+    maturity_counts = maturity_categories.value_counts()
+    plt.pie(maturity_counts.values, labels=maturity_counts.index, autopct="%1.1f%%", startangle=90)
+    plt.title("Category Maturity Distribution")
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "category_maturity_distribution.png")
+    plt.close()
+
+    # 5. Growth potential matrix
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Plot categories on growth potential matrix
+    scatter = ax.scatter(
+        lifecycle_analysis["App Age (days)_mean"],
+        lifecycle_analysis["Entry_Rate"],
+        s=lifecycle_analysis["Installs_median"] / 1000,  # Size by installs
+        alpha=0.6,
+        c=lifecycle_analysis["Rating_mean"],
+        cmap="RdYlGn",
+    )
+
+    # Add quadrant lines
+    ax.axhline(
+        y=lifecycle_analysis["Entry_Rate"].median(), color="gray", linestyle="--", alpha=0.5
+    )
+    ax.axvline(
+        x=lifecycle_analysis["App Age (days)_mean"].median(),
+        color="gray",
+        linestyle="--",
+        alpha=0.5,
+    )
+
+    # Label quadrants
+    ax.text(100, 45, "High Growth\nEmerging", fontsize=12, alpha=0.7, ha="center")
+    ax.text(600, 45, "High Growth\nMature", fontsize=12, alpha=0.7, ha="center")
+    ax.text(100, 5, "Low Growth\nEmerging", fontsize=12, alpha=0.7, ha="center")
+    ax.text(600, 5, "Low Growth\nMature", fontsize=12, alpha=0.7, ha="center")
+
+    # Add category labels for top categories
+    for i, (idx, row) in enumerate(lifecycle_analysis.head(10).iterrows()):
+        ax.annotate(idx, (row["App Age (days)_mean"], row["Entry_Rate"]), fontsize=8, alpha=0.8)
+
+    plt.colorbar(scatter, label="Average Rating")
+    ax.set_xlabel("Average App Age (days)")
+    ax.set_ylabel("New Entry Rate (%)")
+    ax.set_title("Category Growth Potential Matrix")
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "growth_potential_matrix.png")
+    plt.close()
+
+    return lifecycle_analysis
+
+
+def main():
+    """Execute market opportunity analysis."""
+    logger.info("Starting market opportunity analysis")
+
+    # Load data using centralized loader
+    df, market_summary, competition_splits = load_market_data()
+
+    # Analyze market saturation
+    saturation_analysis = analyze_market_saturation(df, market_summary)
+
+    # Identify opportunity gaps
+    opportunity_df = identify_opportunity_gaps(df, market_summary, competition_splits)
+
+    # Apply clustering analysis
+    market_summary = apply_clustering_analysis(df, market_summary)
+
+    # Apply dimensionality reduction
+    market_summary = apply_dimensionality_reduction(market_summary)
+
+    # Analyze temporal patterns
+    lifecycle_analysis = analyze_temporal_patterns(df)
+
+    # Analyze competition dynamics
+    competition_df = analyze_competition_dynamics(df, competition_splits)
+
+    # Analyze category-specific trends
+    trends_df = analyze_category_trends(df)
+
+    # Generate comprehensive report
+    generate_market_insights_report(saturation_analysis, opportunity_df, competition_df, trends_df)
+
+    logger.info("Market opportunity analysis completed")
+    print("\nAnalysis complete! Check the following directories:")
+    print(f"- Figures: {FIGURES_DIR}")
+    print(f"- Results: {RESULTS_DIR}")
+
+
+if __name__ == "__main__":
+    main()
