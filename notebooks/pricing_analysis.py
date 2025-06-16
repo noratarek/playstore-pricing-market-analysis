@@ -44,143 +44,192 @@ def load_data_with_loader():
 
     # Get all required datasets
     df = loader.get_main_dataset()
-    business_df, business_paid_df = loader.get_business_datasets()
+    legitimate_df, legitimate_paid_df = loader.get_legitimate_datasets()
     paid_df = loader.get_paid_dataset()
 
     # Log the dataset sizes
     logger.info(
-        f"Loaded datasets - Full: {len(df)}, Business: {len(business_df)}, "
-        f"Business Paid: {len(business_paid_df)}, All Paid: {len(paid_df)}"
+        f"Loaded datasets - Full: {len(df)}, Legitimate: {len(legitimate_df)}, "
+        f"Legitimate Paid: {len(legitimate_paid_df)}, All Paid: {len(paid_df)}"
     )
 
-    return df, business_df, business_paid_df, paid_df
+    return df, legitimate_df, legitimate_paid_df, paid_df
 
 
-def analyze_price_distribution(df, business_df, business_paid_df, paid_df):
-    """Analyze price distribution and create visualizations (excluding novelty apps)."""
-    logger.info("Analyzing price distribution (business apps only)")
+def analyze_price_distribution(df, legitimate_df, legitimate_paid_df, paid_df):
+    """FIXED: Analyze price distribution with correct calculations."""
+    logger.info("Analyzing price distribution (legitimate apps only)")
 
-    # 1. Create enhanced price distribution visualization (business apps only)
+    # 1. Create enhanced price distribution visualization (legitimate paid apps only)
     plt.figure(figsize=(12, 8))
-
-    # Filter to top 20 most common price points (business apps only)
-    top_prices = business_paid_df["Price"].value_counts().nlargest(20)
+    top_prices = legitimate_paid_df["Price"].value_counts().nlargest(20)
 
     plt.bar(top_prices.index, top_prices.values, color="skyblue")
-    plt.title("Distribution of Top 20 Price Points (Business Apps Only)", fontsize=15)
+    plt.title("Distribution of Top 20 Price Points (Legitimate Apps Only)", fontsize=15)
     plt.xlabel("Price ($)", fontsize=12)
     plt.ylabel("Number of Apps", fontsize=12)
     plt.xticks(fontsize=10)
     plt.grid(axis="y", alpha=0.3)
 
-    # Add value labels on top of bars
     for i, v in enumerate(top_prices.values):
         plt.text(top_prices.index[i], v + 1, str(v), ha="center", fontsize=9)
 
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "top_price_points_distribution_business.png")
+    plt.savefig(FIGURES_DIR / "top_price_points_distribution_legitimate.png")
     plt.close()
 
-    # 2. Price category distribution with percentages (all apps)
-    plt.figure(figsize=(12, 6))
-
-    # Count by price category
-    category_counts = df["Price Category"].value_counts()
-    total = len(df)
-
-    # Create bars with percentages
-    ax = sns.barplot(x=category_counts.index, y=category_counts.values, palette="viridis")
-
-    # Add percentage labels
-    for i, p in enumerate(ax.patches):
-        percentage = 100 * p.get_height() / total
-        ax.annotate(
-            f"{percentage:.1f}%",
-            (p.get_x() + p.get_width() / 2.0, p.get_height()),
-            ha="center",
-            va="bottom",
-            fontsize=11,
+    # 2. FIXED: Calculate category statistics using ALL legitimate apps (including free)
+    legitimate_category_stats = (
+        legitimate_df.groupby("Category")
+        .agg(
+            {
+                "Price": ["mean", "median", "min", "max"],
+                "App": "count",  # Sample size
+                "Rating": "mean",
+                "Installs": "median",
+            }
         )
+        .round(3)
+    )
 
-    plt.title("Distribution of App Price Categories with Percentages", fontsize=15)
-    plt.xlabel("Price Category", fontsize=12)
-    plt.ylabel("Number of Apps", fontsize=12)
-    plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_category_percentages.png")
-    plt.close()
+    # Add percentage of paid apps per category
+    paid_percentage = (
+        legitimate_df.groupby("Category")["Price"].apply(lambda x: (x > 0).mean() * 100).round(1)
+    )
+    legitimate_category_stats[("Price", "paid_pct")] = paid_percentage
 
-    # 3. Calculate key price statistics by category (business apps only)
-    price_stats_business = (
-        business_paid_df.groupby("Category")
-        .agg({"Price": ["mean", "median", "min", "max", "count"]})
+    # Sort by average price (including free apps)
+    legitimate_category_stats = legitimate_category_stats.sort_values(
+        ("Price", "mean"), ascending=False
+    )
+
+    # IMPORTANT: Add sample size filter for reliable statistics
+    MIN_SAMPLE_SIZE = 10
+    reliable_stats = legitimate_category_stats[
+        legitimate_category_stats[("App", "count")] >= MIN_SAMPLE_SIZE
+    ]
+
+    print(f"\n=== CATEGORY PRICE STATISTICS (Legitimate Apps, min {MIN_SAMPLE_SIZE} apps) ===")
+    print("Top 10 categories by average price (including free apps):")
+    display_cols = [("Price", "mean"), ("Price", "paid_pct"), ("App", "count")]
+    print(reliable_stats[display_cols].head(10))
+
+    # Save legitimate statistics
+    legitimate_category_stats.to_csv(RESULTS_DIR / "price_statistics_legitimate_all_apps.csv")
+    reliable_stats.to_csv(RESULTS_DIR / "price_statistics_reliable_sample_size.csv")
+
+    # 3. COMPARISON: Calculate what you were doing before (paid apps only)
+    paid_only_stats = (
+        legitimate_paid_df.groupby("Category")
+        .agg({"Price": ["mean", "median", "count"]})
         .sort_values(("Price", "mean"), ascending=False)
     )
 
-    # Save business statistics as CSV
-    price_stats_business.to_csv(RESULTS_DIR / "price_statistics_by_category_business.csv")
+    print(f"\n=== COMPARISON: Your Old Method (Paid Apps Only) ===")
+    print("This is what was causing the unrealistic high averages:")
+    print(paid_only_stats[("Price", "mean")].head(10))
 
-    # Also calculate with all paid apps for comparison
-    price_stats_all = (
-        paid_df.groupby("Category")
-        .agg({"Price": ["mean", "median", "min", "max", "count"]})
-        .sort_values(("Price", "mean"), ascending=False)
-    )
-    price_stats_all.to_csv(RESULTS_DIR / "price_statistics_by_category_all.csv")
+    # 4. Create comparison visualization
+    top_10_categories = reliable_stats.head(10).index
 
-    # Create visualization of mean price by category (business apps, top 15)
-    plt.figure(figsize=(14, 8))
-    price_stats_business[("Price", "mean")].head(15).plot(kind="bar", color="teal")
-    plt.title("Mean Price by Category - Business Apps Only (Top 15)", fontsize=15)
-    plt.xlabel("Category", fontsize=12)
-    plt.ylabel("Mean Price ($)", fontsize=12)
-    plt.grid(axis="y", alpha=0.3)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Correct method (all apps)
+    reliable_stats.loc[top_10_categories, ("Price", "mean")].plot(kind="bar", ax=ax1, color="teal")
+    ax1.set_title("CORRECT: Average Price Including Free Apps", fontsize=14)
+    ax1.set_ylabel("Average Price ($)")
+    ax1.tick_params(axis="x", rotation=45)
+
+    # Old incorrect method (paid only)
+    paid_only_top10 = paid_only_stats.loc[top_10_categories, ("Price", "mean")]
+    paid_only_top10.plot(kind="bar", ax=ax2, color="coral")
+    ax2.set_title("INCORRECT: Average Price of Paid Apps Only", fontsize=14)
+    ax2.set_ylabel("Average Price ($)")
+    ax2.tick_params(axis="x", rotation=45)
+
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "mean_price_by_category_business_top15.png")
+    plt.savefig(FIGURES_DIR / "price_calculation_comparison.png")
     plt.close()
 
-    # Create comparison chart: Business vs All Apps
-    plt.figure(figsize=(16, 8))
+    # 5. Show sample size warnings
+    small_sample_categories = legitimate_category_stats[
+        legitimate_category_stats[("App", "count")] < MIN_SAMPLE_SIZE
+    ]
 
-    # Get top 10 categories for comparison
-    top_categories = price_stats_business.head(10).index
+    if len(small_sample_categories) > 0:
+        print(f"\n=== WARNING: Categories with < {MIN_SAMPLE_SIZE} apps (unreliable averages) ===")
+        print(small_sample_categories[[("App", "count"), ("Price", "mean")]].head())
 
-    business_means = price_stats_business.loc[top_categories, ("Price", "mean")]
-    all_means = price_stats_all.loc[top_categories, ("Price", "mean")]
+        # Save warning list
+        small_sample_categories.to_csv(RESULTS_DIR / "small_sample_size_warnings.csv")
 
-    x = np.arange(len(top_categories))
-    width = 0.35
+    logger.info("FIXED price distribution analysis completed")
+    return legitimate_category_stats, reliable_stats
 
-    plt.bar(
-        x - width / 2, business_means, width, label="Business Apps Only", color="teal", alpha=0.8
+
+def analyze_installation_ratios_FIXED(legitimate_df):
+    """FIXED: Calculate installation ratios correctly."""
+    logger.info("Analyzing installation ratios (FIXED)")
+
+    order = ["Free", "Low-cost", "Mid-price", "High-price", "Premium"]
+
+    # Calculate median installations by price category
+    medians = legitimate_df.groupby("Price Category")["Installs"].median().reindex(order)
+
+    print("\n=== INSTALLATION MEDIANS BY PRICE CATEGORY ===")
+    for category in order:
+        if category in medians and not pd.isna(medians[category]):
+            print(f"{category}: {medians[category]:,.0f} median installations")
+
+    # Calculate accurate ratios
+    free_median = medians["Free"]
+
+    print(f"\n=== ACCURATE INSTALLATION RATIOS ===")
+    for category in ["Low-cost", "Mid-price", "High-price", "Premium"]:
+        if category in medians and not pd.isna(medians[category]) and medians[category] > 0:
+            ratio = free_median / medians[category]
+            print(
+                f"Free vs {category}: {ratio:.1f}:1 ratio ({free_median:,.0f} vs {medians[category]:,.0f})"
+            )
+
+    return medians
+
+
+# Fixed main function with proper terminology
+def main_FIXED():
+    """Execute the FIXED pricing strategy analysis."""
+    logger.info("Starting FIXED pricing strategy analysis (excluding novelty apps)")
+
+    # Load the data with corrected variable names
+    df, legitimate_df, legitimate_paid_df, paid_df = load_data_with_loader()
+
+    print(f"\n=== DATASET COMPOSITION ===")
+    print(f"Total apps in dataset: {len(df):,}")
+    print(f"Novelty apps excluded: {df['is_novelty_app'].sum()}")
+    print(f"Legitimate apps analyzed: {len(legitimate_df):,}")
+    print(
+        f"Legitimate free apps: {len(legitimate_df[legitimate_df['Price'] == 0]):,} ({len(legitimate_df[legitimate_df['Price'] == 0]) / len(legitimate_df) * 100:.1f}%)"
     )
-    plt.bar(
-        x + width / 2,
-        all_means,
-        width,
-        label="All Apps (including novelty)",
-        color="coral",
-        alpha=0.8,
+    print(
+        f"Legitimate paid apps: {len(legitimate_paid_df):,} ({len(legitimate_paid_df) / len(legitimate_df) * 100:.1f}%)"
     )
 
-    plt.title(
-        "Average Price Comparison: Business Apps vs All Apps (Top 10 Categories)", fontsize=15
+    # FIXED: Analyze price distribution with correct calculations
+    legitimate_stats, reliable_stats = analyze_price_distribution(
+        df, legitimate_df, legitimate_paid_df, paid_df
     )
-    plt.xlabel("Category", fontsize=12)
-    plt.ylabel("Average Price ($)", fontsize=12)
-    plt.xticks(x, top_categories, rotation=45, ha="right")
-    plt.legend()
-    plt.grid(axis="y", alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_comparison_business_vs_all.png")
-    plt.close()
 
-    logger.info("Price distribution analysis completed")
-    return price_stats_business, price_stats_all
+    # FIXED: Analyze installation ratios with correct calculations
+    installation_medians = analyze_installation_ratios_FIXED(legitimate_df)
+
+    # Continue with other analyses using corrected data...
+
+    logger.info("FIXED pricing strategy analysis completed")
 
 
-def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
-    """Analyze how pricing affects app ratings (using business apps)."""
-    logger.info("Analyzing price impact on ratings (business apps)")
+def analyze_price_impact_on_ratings(df, legitimate_df, legitimate_paid_df):
+    """Analyze how pricing affects app ratings (using legitimate apps)."""
+    logger.info("Analyzing price impact on ratings (legitimate apps)")
 
     # 1. Create enhanced boxplot of rating by price category
     plt.figure(figsize=(14, 8))
@@ -189,14 +238,14 @@ def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
 
     # Create boxplot with individual points
     ax = sns.boxplot(
-        x="Price Category", y="Rating", data=business_df, order=order, palette="YlGnBu"
+        x="Price Category", y="Rating", data=legitimate_df, order=order, palette="YlGnBu"
     )
 
     # Add swarmplot for better visualization of distribution
     sns.swarmplot(
         x="Price Category",
         y="Rating",
-        data=business_df,
+        data=legitimate_df,
         order=order,
         color=".25",
         size=2,
@@ -204,7 +253,7 @@ def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
     )
 
     # Add median labels
-    medians = business_df.groupby("Price Category")["Rating"].median()
+    medians = legitimate_df.groupby("Price Category")["Rating"].median()
     for i, category in enumerate(order):
         if category in medians:
             plt.text(
@@ -217,49 +266,49 @@ def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
                 weight="semibold",
             )
 
-    plt.title("Rating Distribution by Price Category (Business Apps)", fontsize=15)
+    plt.title("Rating Distribution by Price Category (Legitimate Apps)", fontsize=15)
     plt.xlabel("Price Category", fontsize=12)
     plt.ylabel("Rating (1-5 scale)", fontsize=12)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "rating_by_price_category_business.png")
+    plt.savefig(FIGURES_DIR / "rating_by_price_category_legitimate.png")
     plt.close()
 
-    # 2. Create scatter plot of price vs. rating for business paid apps
+    # 2. Create scatter plot of price vs. rating for legitimate paid apps
     plt.figure(figsize=(12, 8))
 
     # Create scatter plot with regression line
     sns.regplot(
         x="Price",
         y="Rating",
-        data=business_paid_df,
+        data=legitimate_paid_df,
         scatter_kws={"alpha": 0.4},
         line_kws={"color": "red"},
     )
 
-    plt.title("Relationship Between Price and Rating (Business Apps)", fontsize=15)
+    plt.title("Relationship Between Price and Rating (Legitimate Apps)", fontsize=15)
     plt.xlabel("Price ($)", fontsize=12)
     plt.ylabel("Rating (1-5 scale)", fontsize=12)
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_vs_rating_scatter_business.png")
+    plt.savefig(FIGURES_DIR / "price_vs_rating_scatter_legitimate.png")
     plt.close()
 
-    # 3. Statistical analysis: Correlation and regression (business apps)
+    # 3. Statistical analysis: Correlation and regression (legitimate apps)
     # Calculate correlation
-    correlation = business_paid_df["Price"].corr(business_paid_df["Rating"])
+    correlation = legitimate_paid_df["Price"].corr(legitimate_paid_df["Rating"])
 
     # Run a simple regression model
-    X = sm.add_constant(business_paid_df["Price"])
-    model = sm.OLS(business_paid_df["Rating"], X).fit()
+    X = sm.add_constant(legitimate_paid_df["Price"])
+    model = sm.OLS(legitimate_paid_df["Rating"], X).fit()
 
     # Save regression results
-    with open(RESULTS_DIR / "price_rating_regression_business.txt", "w") as f:
-        f.write(f"Correlation between Price and Rating (Business Apps): {correlation:.4f}\n\n")
+    with open(RESULTS_DIR / "price_rating_regression_legitimate.txt", "w") as f:
+        f.write(f"Correlation between Price and Rating (Legitimate Apps): {correlation:.4f}\n\n")
         f.write(model.summary().as_text())
 
-    # 4. Calculate average rating by price tier for different categories (business apps)
+    # 4. Calculate average rating by price tier for different categories (legitimate apps)
     # Get top 10 categories by app count
-    top_categories = business_df["Category"].value_counts().head(10).index.tolist()
+    top_categories = legitimate_df["Category"].value_counts().head(10).index.tolist()
 
     # Create a figure with multiple subplots
     fig, axes = plt.subplots(5, 2, figsize=(18, 25))
@@ -269,11 +318,11 @@ def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
 
     # For each category, show rating by price category
     for i, category in enumerate(top_categories):
-        category_df = business_df[business_df["Category"] == category]
+        category_df = legitimate_df[legitimate_df["Category"] == category]
 
         # Create category-specific plot
         sns.boxplot(x="Price Category", y="Rating", data=category_df, order=order, ax=axes[i])
-        axes[i].set_title(f"Ratings by Price Category: {category} (Business Apps)", fontsize=13)
+        axes[i].set_title(f"Ratings by Price Category: {category} (Legitimate Apps)", fontsize=13)
         axes[i].set_ylim(1, 5)
 
         # Calculate mean ratings by price category for this category
@@ -281,21 +330,21 @@ def analyze_price_impact_on_ratings(df, business_df, business_paid_df):
         category_price_effects[category] = category_means.to_dict()
 
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "rating_by_price_across_categories_business.png")
+    plt.savefig(FIGURES_DIR / "rating_by_price_across_categories_legitimate.png")
     plt.close()
 
     # Save category price effects to CSV
     pd.DataFrame(category_price_effects).to_csv(
-        RESULTS_DIR / "category_price_effects_business.csv"
+        RESULTS_DIR / "category_price_effects_legitimate.csv"
     )
 
     logger.info("Price impact on ratings analysis completed")
     return correlation, model
 
 
-def analyze_price_impact_on_installs(df, business_df, business_paid_df):
-    """Analyze how pricing affects app installations (using business apps)."""
-    logger.info("Analyzing price impact on installs (business apps)")
+def analyze_price_impact_on_installs(df, legitimate_df, legitimate_paid_df):
+    """Analyze how pricing affects app installations (using legitimate apps)."""
+    logger.info("Analyzing price impact on installs (legitimate apps)")
 
     # 1. Create visualization of installs by price category
     plt.figure(figsize=(14, 8))
@@ -304,26 +353,26 @@ def analyze_price_impact_on_installs(df, business_df, business_paid_df):
 
     # Create boxplot with log scale for installations
     ax = sns.boxplot(
-        x="Price Category", y="Installs", data=business_df, order=order, palette="YlOrRd"
+        x="Price Category", y="Installs", data=legitimate_df, order=order, palette="YlOrRd"
     )
     plt.yscale("log")  # Log scale for better visualization
 
     plt.title(
-        "Installation Distribution by Price Category - Business Apps (Log Scale)", fontsize=15
+        "Installation Distribution by Price Category - Legitimate Apps (Log Scale)", fontsize=15
     )
     plt.xlabel("Price Category", fontsize=12)
     plt.ylabel("Installations (Log Scale)", fontsize=12)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "installs_by_price_category_business.png")
+    plt.savefig(FIGURES_DIR / "installs_by_price_category_legitimate.png")
     plt.close()
 
     # 2. Calculate median installations by price category
-    installs_by_price = business_df.groupby("Price Category")["Installs"].median().reindex(order)
+    installs_by_price = legitimate_df.groupby("Price Category")["Installs"].median().reindex(order)
 
     # Create bar chart of median installs
     plt.figure(figsize=(12, 6))
     installs_by_price.plot(kind="bar", color="coral")
-    plt.title("Median Installations by Price Category (Business Apps)", fontsize=15)
+    plt.title("Median Installations by Price Category (Legitimate Apps)", fontsize=15)
     plt.xlabel("Price Category", fontsize=12)
     plt.ylabel("Median Installations", fontsize=12)
     plt.grid(axis="y", alpha=0.3)
@@ -333,12 +382,12 @@ def analyze_price_impact_on_installs(df, business_df, business_paid_df):
         plt.text(i, v * 1.1, f"{v:,.0f}", ha="center", fontsize=10)
 
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "median_installs_by_price_business.png")
+    plt.savefig(FIGURES_DIR / "median_installs_by_price_legitimate.png")
     plt.close()
 
     # 3. Calculate install ratio between free and paid apps
-    free_median = business_df[business_df["Price Category"] == "Free"]["Installs"].median()
-    paid_median = business_df[business_df["Price Category"] != "Free"]["Installs"].median()
+    free_median = legitimate_df[legitimate_df["Price Category"] == "Free"]["Installs"].median()
+    paid_median = legitimate_df[legitimate_df["Price Category"] != "Free"]["Installs"].median()
 
     install_ratio = free_median / paid_median
 
@@ -349,7 +398,7 @@ def analyze_price_impact_on_installs(df, business_df, business_paid_df):
     plt.figure(figsize=(10, 6))
     bars = plt.bar(categories, medians, color=["lightblue", "lightcoral"])
     plt.title(
-        f"Free vs. Paid Apps: Median Installations - Business Apps (Ratio: {install_ratio:.1f}x)",
+        f"Free vs. Paid Apps: Median Installations - Legitimate Apps (Ratio: {install_ratio:.1f}x)",
         fontsize=15,
     )
     plt.ylabel("Median Installations", fontsize=12)
@@ -366,38 +415,38 @@ def analyze_price_impact_on_installs(df, business_df, business_paid_df):
         )
 
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "free_vs_paid_install_comparison_business.png")
+    plt.savefig(FIGURES_DIR / "free_vs_paid_install_comparison_legitimate.png")
     plt.close()
 
-    # 4. Check the relationship between price and installs within business paid apps
+    # 4. Check the relationship between price and installs within legitimate paid apps
     plt.figure(figsize=(12, 8))
 
     # Create scatter plot with regression line
     sns.regplot(
         x="Price",
         y="Installs",
-        data=business_paid_df,
+        data=legitimate_paid_df,
         scatter_kws={"alpha": 0.4},
         line_kws={"color": "red"},
     )
     plt.yscale("log")  # Log scale for better visualization
 
     plt.title(
-        "Relationship Between Price and Installations - Business Apps (Log Scale)", fontsize=15
+        "Relationship Between Price and Installations - Legitimate Apps (Log Scale)", fontsize=15
     )
     plt.xlabel("Price ($)", fontsize=12)
     plt.ylabel("Installations (Log Scale)", fontsize=12)
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_vs_installs_scatter_business.png")
+    plt.savefig(FIGURES_DIR / "price_vs_installs_scatter_legitimate.png")
     plt.close()
 
-    # 5. Calculate price elasticity by category (business apps)
+    # 5. Calculate price elasticity by category (legitimate apps)
     price_elasticity = {}
-    top_categories = business_df["Category"].value_counts().head(15).index.tolist()
+    top_categories = legitimate_df["Category"].value_counts().head(15).index.tolist()
 
     for category in top_categories:
-        category_df = business_df[business_df["Category"] == category]
+        category_df = legitimate_df[legitimate_df["Category"] == category]
 
         # Get median installs for free and paid apps
         if (
@@ -430,31 +479,31 @@ def analyze_price_impact_on_installs(df, business_df, business_paid_df):
     plt.figure(figsize=(14, 8))
     plt.bar(price_elasticity.keys(), price_elasticity.values(), color="purple")
     plt.axhline(y=0, color="red", linestyle="-", alpha=0.3)
-    plt.title("Price Elasticity by Category (Business Apps)", fontsize=15)
+    plt.title("Price Elasticity by Category (Legitimate Apps)", fontsize=15)
     plt.xlabel("Category", fontsize=12)
     plt.ylabel("Estimated Price Elasticity", fontsize=12)
     plt.xticks(rotation=90)
     plt.grid(axis="y", alpha=0.3)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_elasticity_by_category_business.png")
+    plt.savefig(FIGURES_DIR / "price_elasticity_by_category_legitimate.png")
     plt.close()
 
     # Save price elasticity data
     pd.DataFrame(
         {"Category": price_elasticity.keys(), "Price Elasticity": price_elasticity.values()}
-    ).to_csv(RESULTS_DIR / "price_elasticity_by_category_business.csv", index=False)
+    ).to_csv(RESULTS_DIR / "price_elasticity_by_category_legitimate.csv", index=False)
 
     logger.info("Price impact on installs analysis completed")
     return price_elasticity
 
 
-def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
-    """Identify optimal pricing strategies by category (using business apps)."""
-    logger.info("Analyzing optimal pricing strategies (business apps)")
+def analyze_optimal_pricing_strategy(df, legitimate_df, legitimate_paid_df):
+    """Identify optimal pricing strategies by category (using legitimate apps)."""
+    logger.info("Analyzing optimal pricing strategies (legitimate apps)")
 
     # 1. Calculate price efficiency (Rating/Price) by category
     category_price_efficiency = (
-        business_paid_df.groupby("Category")["Price Efficiency"]
+        legitimate_paid_df.groupby("Category")["Price Efficiency"]
         .mean()
         .sort_values(ascending=False)
     )
@@ -462,12 +511,12 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
     # Create visualization
     plt.figure(figsize=(14, 8))
     category_price_efficiency.head(15).plot(kind="bar", color="teal")
-    plt.title("Price Efficiency by Category - Business Apps (Rating per Dollar)", fontsize=15)
+    plt.title("Price Efficiency by Category - Legitimate Apps (Rating per Dollar)", fontsize=15)
     plt.xlabel("Category", fontsize=12)
     plt.ylabel("Average Price Efficiency", fontsize=12)
     plt.grid(axis="y", alpha=0.3)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "price_efficiency_by_category_business.png")
+    plt.savefig(FIGURES_DIR / "price_efficiency_by_category_legitimate.png")
     plt.close()
 
     # 2. Identify most successful price points by category
@@ -477,8 +526,8 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
     # Calculate z-scores for Rating and Installs
     scaler = StandardScaler()
 
-    # Only use business apps with both rating and installs information
-    success_df = business_paid_df.dropna(subset=["Rating", "Installs"]).copy()
+    # Only use legitimate apps with both rating and installs information
+    success_df = legitimate_paid_df.dropna(subset=["Rating", "Installs"]).copy()
 
     # Apply log transformation to Installs for better scaling
     success_df["Log_Installs"] = np.log1p(success_df["Installs"])
@@ -491,7 +540,7 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
     success_df["Success_Score"] = 0.5 * success_df["Rating_Z"] + 0.5 * success_df["Installs_Z"]
 
     # Find the optimal price point by category
-    top_categories = business_df["Category"].value_counts().head(15).index.tolist()
+    top_categories = legitimate_df["Category"].value_counts().head(15).index.tolist()
     optimal_price_points = {}
 
     for category in top_categories:
@@ -527,7 +576,7 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
 
     plt.bar(sorted_categories, sorted_prices, color="gold")
     plt.title(
-        "Optimal Price Point by Category - Business Apps (Based on Success Score)", fontsize=15
+        "Optimal Price Point by Category - Legitimate Apps (Based on Success Score)", fontsize=15
     )
     plt.xlabel("Category", fontsize=12)
     plt.ylabel("Optimal Price ($)", fontsize=12)
@@ -539,13 +588,13 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
         plt.text(i, price + 0.2, f"${price:.2f}", ha="center", fontsize=10)
 
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "optimal_price_by_category_business.png")
+    plt.savefig(FIGURES_DIR / "optimal_price_by_category_legitimate.png")
     plt.close()
 
     # Save optimal price data
     pd.DataFrame(optimal_price_points).T.reset_index().rename(
         columns={"index": "Category"}
-    ).to_csv(RESULTS_DIR / "optimal_price_by_category_business.csv", index=False)
+    ).to_csv(RESULTS_DIR / "optimal_price_by_category_legitimate.csv", index=False)
 
     # 3. Cluster apps by price and success to identify pricing strategies
     # We'll use KMeans clustering
@@ -567,12 +616,12 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
     # Plot Elbow method result
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, 11), inertias, "bo-")
-    plt.title("Elbow Method for Optimal k (Business Apps)", fontsize=15)
+    plt.title("Elbow Method for Optimal k (Legitimate Apps)", fontsize=15)
     plt.xlabel("Number of Clusters (k)", fontsize=12)
     plt.ylabel("Inertia", fontsize=12)
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "kmeans_elbow_method_business.png")
+    plt.savefig(FIGURES_DIR / "kmeans_elbow_method_legitimate.png")
     plt.close()
 
     # Choose optimal k from elbow method (let's say k=4 for this example)
@@ -608,13 +657,13 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
         label="Cluster Centers",
     )
 
-    plt.title("App Clusters by Price and Success Score (Business Apps)", fontsize=15)
+    plt.title("App Clusters by Price and Success Score (Legitimate Apps)", fontsize=15)
     plt.xlabel("Price ($)", fontsize=12)
     plt.ylabel("Success Score", fontsize=12)
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "app_price_success_clusters_business.png")
+    plt.savefig(FIGURES_DIR / "app_price_success_clusters_legitimate.png")
     plt.close()
 
     # Analyze cluster characteristics
@@ -633,7 +682,7 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
     )
 
     # Save cluster analysis
-    cluster_analysis.to_csv(RESULTS_DIR / "price_success_clusters_business.csv")
+    cluster_analysis.to_csv(RESULTS_DIR / "price_success_clusters_legitimate.csv")
 
     # Analyze most common categories in each cluster
     cluster_categories = {}
@@ -643,7 +692,7 @@ def analyze_optimal_pricing_strategy(df, business_df, business_paid_df):
         cluster_categories[f"Cluster {cluster_id}"] = category_counts.to_dict()
 
     # Save cluster category analysis
-    pd.DataFrame(cluster_categories).to_csv(RESULTS_DIR / "cluster_categories_business.csv")
+    pd.DataFrame(cluster_categories).to_csv(RESULTS_DIR / "cluster_categories_legitimate.csv")
 
     logger.info("Optimal pricing strategy analysis completed")
     return optimal_price_points, cluster_analysis
@@ -654,56 +703,56 @@ def main():
     logger.info("Starting pricing strategy analysis (excluding novelty apps)")
 
     # Load the data
-    df, business_df, business_paid_df, paid_df = load_data_with_loader()
+    df, legitimate_df, legitimate_paid_df, paid_df = load_data_with_loader()
 
     # Analyze price distribution
-    price_stats_business, price_stats_all = analyze_price_distribution(
-        df, business_df, business_paid_df, paid_df
+    price_stats_legitimate, price_stats_all = analyze_price_distribution(
+        df, legitimate_df, legitimate_paid_df, paid_df
     )
 
     # Analyze price impact on ratings
-    correlation, model = analyze_price_impact_on_ratings(df, business_df, business_paid_df)
+    correlation, model = analyze_price_impact_on_ratings(df, legitimate_df, legitimate_paid_df)
 
     # Analyze price impact on installs
-    price_elasticity = analyze_price_impact_on_installs(df, business_df, business_paid_df)
+    price_elasticity = analyze_price_impact_on_installs(df, legitimate_df, legitimate_paid_df)
 
     # Analyze optimal pricing strategies
     optimal_prices, cluster_analysis = analyze_optimal_pricing_strategy(
-        df, business_df, business_paid_df
+        df, legitimate_df, legitimate_paid_df
     )
 
     #
     logger.info("Pricing strategy analysis completed")
 
     # Create a summary report
-    with open(RESULTS_DIR / "pricing_analysis_summary_business.txt", "w") as f:
+    with open(RESULTS_DIR / "pricing_analysis_summary_legitimate.txt", "w") as f:
         f.write("# PRICING STRATEGY ANALYSIS SUMMARY (BUSINESS APPS ONLY)\n\n")
 
         f.write("## Dataset Composition\n")
         f.write(f"- Total apps: {len(df)}\n")
         f.write(f"- Novelty apps excluded: {df['is_novelty_app'].sum()}\n")
-        f.write(f"- Business apps analyzed: {len(business_df)}\n")
+        f.write(f"- Legitimate apps analyzed: {len(legitimate_df)}\n")
         f.write(
-            f"- Free business apps: {len(business_df[business_df['Price'] == 0])} ({len(business_df[business_df['Price'] == 0]) / len(business_df) * 100:.1f}%)\n"
+            f"- Free legitimate apps: {len(legitimate_df[legitimate_df['Price'] == 0])} ({len(legitimate_df[legitimate_df['Price'] == 0]) / len(legitimate_df) * 100:.1f}%)\n"
         )
         f.write(
-            f"- Paid business apps: {len(business_paid_df)} ({len(business_paid_df) / len(business_df) * 100:.1f}%)\n\n"
-        )
-
-        f.write("## Price Distribution (Business Apps)\n")
-        f.write(
-            f"- Most common price points: {', '.join([+str(p) for p in business_paid_df['Price'].value_counts().head(5).index.tolist()])}\n"
-        )
-        f.write(
-            f"- Highest priced categories: {', '.join(price_stats_business.head(5).index.get_level_values(0).tolist())}\n\n"
+            f"- Paid legitimate apps: {len(legitimate_paid_df)} ({len(legitimate_paid_df) / len(legitimate_df) * 100:.1f}%)\n\n"
         )
 
-        f.write("## Price Impact on Ratings (Business Apps)\n")
+        f.write("## Price Distribution (Legitimate Apps)\n")
+        f.write(
+            f"- Most common price points: {', '.join([+str(p) for p in legitimate_paid_df['Price'].value_counts().head(5).index.tolist()])}\n"
+        )
+        f.write(
+            f"- Highest priced categories: {', '.join(price_stats_legitimate.head(5).index.get_level_values(0).tolist())}\n\n"
+        )
+
+        f.write("## Price Impact on Ratings (Legitimate Apps)\n")
         f.write(f"- Correlation between price and rating: {correlation:.4f}\n")
         f.write(f"- Regression coefficient: {model.params[1]:.4f}\n")
         f.write(f"- Statistical significance: {'Yes' if model.pvalues[1] < 0.05 else 'No'}\n\n")
 
-        f.write("## Price Impact on Installations (Business Apps)\n")
+        f.write("## Price Impact on Installations (Legitimate Apps)\n")
         f.write("- Free apps have significantly higher installations than paid apps\n")
         f.write(
             f"- Categories with lowest price elasticity: {', '.join(list(price_elasticity.keys())[:3])}\n"
@@ -712,7 +761,7 @@ def main():
             f"- Categories with highest price elasticity: {', '.join(list(price_elasticity.keys())[-3:])}\n\n"
         )
 
-        f.write("## Optimal Pricing Strategies (Business Apps)\n")
+        f.write("## Optimal Pricing Strategies (Legitimate Apps)\n")
         f.write("- Identified optimal price points by category based on success score\n")
         f.write(
             f"- Categories with highest price efficiency: {', '.join(list(optimal_prices.keys())[:5])}\n"
@@ -721,19 +770,19 @@ def main():
 
         f.write("## Key Findings\n")
         f.write(
-            "1. After excluding novelty apps, pricing patterns become more meaningful for business decisions\n"
+            "1. After excluding novelty apps, pricing patterns become more meaningful for legitimate decisions\n"
         )
         f.write(
-            "2. Business apps show more realistic average prices compared to including novelty status symbol apps\n"
+            "2. Legitimate apps show more realistic average prices compared to including novelty status symbol apps\n"
         )
         f.write(
-            "3. Price-rating relationships are clearer when focusing on legitimate business apps\n"
+            "3. Price-rating relationships are clearer when focusing on legitimate legitimate apps\n"
         )
         f.write(
             "4. Optimal price points are more actionable for developers when novelty apps are excluded\n"
         )
         f.write(
-            "5. Multiple pricing strategies exist for legitimate business apps, as identified through clustering\n"
+            "5. Multiple pricing strategies exist for legitimate legitimate apps, as identified through clustering\n"
         )
 
     logger.info("Pricing strategy analysis completed")

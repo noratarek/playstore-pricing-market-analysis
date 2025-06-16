@@ -24,16 +24,16 @@ class PlayStoreDataLoader:
             )
         return self._cache["main_df"].copy()
 
-    def get_business_datasets(self):
-        """Get business-focused datasets (excluding novelty apps)."""
-        if "business_df" not in self._cache:
+    def get_legitimate_datasets(self):
+        """Get legitimate-focused datasets (excluding novelty apps)."""
+        if "legitimate_df" not in self._cache:
             df = self.get_main_dataset()
 
             # Filter out novelty apps
             if "is_novelty_app" in df.columns:
-                self._cache["business_df"] = df[~df["is_novelty_app"]].copy()
-                self._cache["business_paid_df"] = self._cache["business_df"][
-                    self._cache["business_df"]["Price"] > 0
+                self._cache["legitimate_df"] = df[~df["is_novelty_app"]].copy()
+                self._cache["legitimate_paid_df"] = self._cache["legitimate_df"][
+                    self._cache["legitimate_df"]["Price"] > 0
                 ].copy()
             else:
                 # Create novelty flag if it doesn't exist
@@ -44,12 +44,12 @@ class PlayStoreDataLoader:
                     lambda row: bool(rich_pattern.search(str(row["App"]))) and row["Price"] > 20,
                     axis=1,
                 )
-                self._cache["business_df"] = df[~df["is_novelty_app"]].copy()
-                self._cache["business_paid_df"] = self._cache["business_df"][
-                    self._cache["business_df"]["Price"] > 0
+                self._cache["legitimate_df"] = df[~df["is_novelty_app"]].copy()
+                self._cache["legitimate_paid_df"] = self._cache["legitimate_df"][
+                    self._cache["legitimate_df"]["Price"] > 0
                 ].copy()
 
-        return (self._cache["business_df"].copy(), self._cache["business_paid_df"].copy())
+        return (self._cache["legitimate_df"].copy(), self._cache["legitimate_paid_df"].copy())
 
     def get_paid_dataset(self):
         """Get all paid apps (including novelty)."""

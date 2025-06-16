@@ -1,12 +1,12 @@
-Correlation between Price and Rating (Business Apps): -0.0016
+Correlation between Price and Rating (Legitimate Apps): -0.0016
 
                             OLS Regression Results                            
 ==============================================================================
 Dep. Variable:                 Rating   R-squared:                       0.000
 Model:                            OLS   Adj. R-squared:                 -0.001
 Method:                 Least Squares   F-statistic:                  0.001820
-Date:                Fri, 13 Jun 2025   Prob (F-statistic):              0.966
-Time:                        17:13:33   Log-Likelihood:                -541.17
+Date:                Mon, 16 Jun 2025   Prob (F-statistic):              0.966
+Time:                        23:27:47   Log-Likelihood:                -541.17
 No. Observations:                 742   AIC:                             1086.
 Df Residuals:                     740   BIC:                             1096.
 Df Model:                           1                                         
