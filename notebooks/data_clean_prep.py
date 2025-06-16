@@ -264,18 +264,24 @@ def create_derived_features(df_clean):
     category_avg_installs = df_features.groupby("Category")["Installs"].mean()
     df_features["Category Avg Installs"] = df_features["Category"].map(category_avg_installs)
 
-    # NEW: Use log-based saturation index to handle scale differences
-    # This prevents infinity when average installs is very low
-    df_features["Market Saturation Index"] = df_features.apply(
-        lambda row: np.log1p(row["Category App Count"])
-        / np.log1p(row["Category Avg Installs"] + 1),
-        axis=1,
-    )
+    # FIXED: Use robust saturation index calculation that handles edge cases
+    def calculate_saturation_index(app_count, avg_installs):
+        """Calculate saturation index with proper handling of edge cases."""
+        if pd.isna(avg_installs) or avg_installs <= 0:
+            return 0
 
-    # Calculate market saturation index
-    # Higher values indicate more apps competing for same install base (more saturated)
-    df_features["Market Saturation Index"] = (
-        df_features["Category App Count"] / df_features["Category Avg Installs"] * 10000
+        # Use log-based calculation to prevent extreme values
+        # Higher values = more saturated
+        saturation = np.log1p(app_count) / np.log1p(avg_installs)
+
+        # Cap at reasonable maximum to prevent outliers
+        return min(saturation, 100)
+
+    df_features["Market Saturation Index"] = df_features.apply(
+        lambda row: calculate_saturation_index(
+            row["Category App Count"], row["Category Avg Installs"]
+        ),
+        axis=1,
     )
 
     # 4. Competitive position metrics
